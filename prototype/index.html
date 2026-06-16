@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>가상공간에서의 건축 실험 - Jean Nouvel Prototype</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #e0e5ec;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+            box-sizing: border-box;
+            color: rgba(30, 30, 30, 0.9);
+            text-shadow: 0 0 5px rgba(255, 255, 255, 0.8);
+            transition: all 0.5s ease;
+        }
+        
+        #gps-coords { font-size: 14px; letter-spacing: 2px; font-weight: bold; }
+        
+        #state-indicator {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            font-size: 14px;
+            text-transform: uppercase;
+            font-weight: bold;
+            text-align: right;
+        }
+
+        #sensory-hint {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #ff003c;
+            display: none;
+        }
+        #sensory-hint.active { display: block; }
+
+        #time-indicator {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            font-size: 12px;
+            opacity: 0.9;
+            font-weight: bold;
+        }
+        
+        #instruction {
+            font-size: 11px;
+            opacity: 0.5;
+            text-align: center;
+            font-weight: normal;
+            letter-spacing: 2px;
+            transition: opacity 2s ease;
+            text-transform: uppercase;
+        }
+        
+        #instruction.tutorial-mode {
+            position: absolute;
+            top: 40%; left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 16px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-weight: 300;
+            letter-spacing: 5px;
+            color: #fff;
+            text-shadow: 0 2px 10px rgba(0,0,0,1);
+            background: linear-gradient(90deg, transparent, rgba(0,0,0,0.85) 25%, rgba(0,0,0,0.85) 75%, transparent);
+            padding: 30px 0;
+            width: 100vw;
+            box-sizing: border-box;
+            opacity: 1;
+        }
+        
+        #instruction.hidden-phase, #instruction.init-hidden {
+            opacity: 0 !important;
+        }
+        
+        .glitch {
+            animation: glitch-anim 0.2s linear infinite;
+            color: #ff003c !important;
+            text-shadow: 2px 0 #00e6f6, -2px 0 #00e6f6 !important;
+        }
+        
+        @keyframes glitch-anim {
+            0% { transform: translate(0) }
+            20% { transform: translate(-2px, 1px) }
+            40% { transform: translate(-1px, -1px) }
+            60% { transform: translate(2px, 1px) }
+            80% { transform: translate(1px, -1px) }
+            100% { transform: translate(0) }
+        }
+        
+        /* 2. Metal Mesh Interface */
+        #mesh-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 5;
+            opacity: 0;
+            transition: opacity 2s cubic-bezier(0.25, 1, 0.5, 1), background-size 4s ease-out;
+            background-image: 
+                radial-gradient(circle at 50% 50%, transparent 22%, rgba(15,15,15,0.95) 28%),
+                linear-gradient(45deg, transparent 49%, rgba(80,80,80,0.8) 49.5%, rgba(80,80,80,0.8) 50.5%, transparent 51%),
+                linear-gradient(-45deg, transparent 49%, rgba(80,80,80,0.8) 49.5%, rgba(80,80,80,0.8) 50.5%, transparent 51%);
+            background-size: 150px 150px;
+            background-position: center center;
+            mix-blend-mode: multiply;
+        }
+        #mesh-overlay.active { opacity: 1; background-size: 90px 90px; }
+
+        /* 1. Glass Interface (Silhouette) */
+        #glass-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 4;
+            opacity: 0;
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(2px) contrast(1.2);
+            transition: opacity 1s ease;
+        }
+        #glass-overlay.active { opacity: 1; }
+        .silhouette {
+            position: absolute;
+            top: 20%; left: -20%;
+            width: 200px; height: 600px;
+            background: rgba(0, 0, 0, 0.5);
+            filter: blur(15px);
+            border-radius: 100px;
+            animation: walk 10s infinite alternate linear;
+        }
+        @keyframes walk {
+            0% { transform: translateX(0vw) scaleY(1); }
+            50% { transform: translateX(60vw) scaleY(1.1); }
+            100% { transform: translateX(120vw) scaleY(0.9); }
+        }
+
+        /* WebGL Canvas Filters */
+        canvas {
+            transition: filter 1s ease;
+        }
+        .filter-concrete {
+            /* 3. Concrete: Heavy, dead, absorbing (silence) */
+            filter: grayscale(100%) contrast(150%) brightness(0.5);
+        }
+        .filter-water {
+            /* 6. Water: Blurred boundaries, aquatic tone */
+            filter: blur(10px) sepia(60%) hue-rotate(180deg) saturate(200%);
+        }
+        /* 7. Anatomy of Light Hint */
+        #wheel-hint {
+            position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
+            color: #fff; background: rgba(0,0,0,0.6); padding: 8px 16px; border-radius: 20px;
+            font-size: 14px; font-weight: bold; display: none; pointer-events: none;
+            letter-spacing: 1px; border: 1px solid rgba(255,255,255,0.3);
+        }
+        #wheel-hint.active { display: block; }
+
+        /* 8. Docent Panel (Exhibition Info) */
+        #docent-panel {
+            position: absolute; top: 50%; left: 40px; transform: translateY(-50%);
+            width: 380px; max-height: 70vh; overflow-y: auto;
+            background: rgba(10, 10, 15, 0.85); color: #fff;
+            padding: 25px; border-left: 3px solid #ff003c;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            opacity: 0; pointer-events: none; transition: opacity 0.5s ease;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5); backdrop-filter: blur(5px);
+        }
+        /* Scrollbar styling for docent panel */
+        #docent-panel::-webkit-scrollbar { width: 6px; }
+        #docent-panel::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+        #docent-panel::-webkit-scrollbar-thumb { background: #ff003c; border-radius: 3px; }
+
+        #docent-panel.active { opacity: 1; pointer-events: auto; }
+        
+        #docent-toggle { position: absolute; top: 20px; right: 20px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: #fff; width: 24px; height: 24px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px; transition: 0.3s; z-index: 10; padding-bottom: 2px; }
+        #docent-toggle:hover { background: rgba(255,255,255,0.3); }
+        
+        #docent-panel.collapsed { height: 60px; width: 280px; overflow: hidden; padding-bottom: 0; }
+        #docent-panel.collapsed #docent-img, #docent-panel.collapsed #docent-arch, #docent-panel.collapsed #docent-desc { display: none !important; }
+        #docent-panel.collapsed #docent-title { font-size: 14px; margin-bottom: 0; margin-top: -3px; max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        #docent-img { width: 100%; height: 160px; object-fit: cover; border-radius: 4px; margin-bottom: 15px; display: none; border: 1px solid rgba(255,255,255,0.1); }
+        #docent-title { font-size: 20px; font-weight: bold; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; color: #ff003c; transition: all 0.3s; }
+        #docent-arch { font-size: 14px; color: #00e6f6; margin-bottom: 15px; font-style: italic; }
+        #docent-desc { font-size: 14px; line-height: 1.7; color: #eee; word-break: keep-all; text-align: justify; }
+    </style>
+</head>
+<body>
+    <div id="mesh-overlay"></div>
+    <div id="glass-overlay"><div class="silhouette"></div></div>
+    
+    <div id="ui-layer">
+        <div id="gps-coords">LAT 48.8566 | LON 2.3522</div>
+        <div id="state-indicator">
+            <span id="state-text">State: Approaching (Corridor)</span>
+            <div id="sensory-hint">[COURTYARD ENTRY]<br>Press 1~7 for Sensory Material</div>
+        </div>
+        <div id="time-indicator">T+0.00</div>
+        <div id="instruction" class="tutorial-mode init-hidden">Use W, A, S, D to move. Click & drag to look around. Speed affects the environment.</div>
+    </div>
+    <div id="wheel-hint">🖱️ Scroll Mouse Wheel to Control Apertures</div>
+    
+    <div id="docent-panel">
+        <button id="docent-toggle">-</button>
+        <img id="docent-img" src="" alt="Architecture Motif">
+        <div id="docent-title">Mode Title</div>
+        <div id="docent-arch">Motif: Building</div>
+        <div id="docent-desc">Description goes here.</div>
+    </div>
+
+    <!-- Load Three.js UMD -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        // Scene setup
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0xe0e5ec, 0.04);
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 2, 45);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setClearColor(0xe0e5ec);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.target.set(0, 2, 40);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5); 
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
+        directionalLight.position.set(20, 20, 20);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.mapSize.width = 2048;
+        directionalLight.shadow.mapSize.height = 2048;
+        directionalLight.shadow.camera.near = 0.5;
+        directionalLight.shadow.camera.far = 100;
+        directionalLight.shadow.camera.left = -30;
+        directionalLight.shadow.camera.right = 30;
+        directionalLight.shadow.camera.top = 30;
+        directionalLight.shadow.camera.bottom = -30;
+        directionalLight.shadow.bias = -0.0005;
+        scene.add(directionalLight);
+
+        // Materials
+        const wallMaterial = new THREE.MeshStandardMaterial({
+            color: 0x888888, 
+            metalness: 0.1,
+            roughness: 0.9,
+        });
+
+        // Corridor
+        const pillarGeo = new THREE.BoxGeometry(0.5, 6, 0.5);
+        for (let z = 10; z < 50; z += 2) {
+            const leftMesh = new THREE.Mesh(pillarGeo, wallMaterial);
+            leftMesh.position.set(-3, 3, z);
+            leftMesh.castShadow = true; leftMesh.receiveShadow = true;
+            scene.add(leftMesh);
+
+            const rightMesh = new THREE.Mesh(pillarGeo, wallMaterial);
+            rightMesh.position.set(3, 3, z);
+            rightMesh.castShadow = true; rightMesh.receiveShadow = true;
+            scene.add(rightMesh);
+            
+            if (z % 4 === 0) {
+                const beamGeo = new THREE.BoxGeometry(6.5, 0.2, 0.5);
+                const beam = new THREE.Mesh(beamGeo, wallMaterial);
+                beam.position.set(0, 6, z);
+                beam.castShadow = true;
+                scene.add(beam);
+            }
+        }
+
+        // Courtyard
+        const courtyardWallGeo = new THREE.BoxGeometry(1, 6, 1);
+        for (let i = 0; i < 24; i++) {
+            const mesh = new THREE.Mesh(courtyardWallGeo, wallMaterial);
+            const angle = (i / 24) * Math.PI * 2;
+            const radius = 8;
+            mesh.position.x = Math.cos(angle) * radius;
+            mesh.position.z = Math.sin(angle) * radius;
+            mesh.position.y = 3;
+            mesh.lookAt(0, 3, 0);
+            mesh.castShadow = true; mesh.receiveShadow = true;
+            scene.add(mesh);
+        }
+
+        const courtyardGeo = new THREE.CylinderGeometry(4, 4, 0.1, 64);
+        const courtyardMat = new THREE.MeshBasicMaterial({ color: 0x666666, wireframe: true });
+        const courtyard = new THREE.Mesh(courtyardGeo, courtyardMat);
+        courtyard.position.y = 0.05;
+        scene.add(courtyard);
+
+        const floorGeo = new THREE.PlaneGeometry(100, 100);
+        const floorMat = new THREE.MeshStandardMaterial({ color: 0xdddddd, roughness: 0.8 });
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        scene.add(floor);
+
+        // --- ARABESQUE SCREEN (Mode 5) GOBO ---
+        const canvas = document.createElement('canvas');
+        canvas.width = 128; canvas.height = 128;
+        const ctx = canvas.getContext('2d');
+        const arabesqueTex = new THREE.CanvasTexture(canvas);
+        arabesqueTex.magFilter = THREE.NearestFilter; // Pixelated
+        
+        let apertureSize = 12; // Max 16
+        function updateArabesqueCanvas() {
+            ctx.fillStyle = '#000'; ctx.fillRect(0,0,128,128);
+            ctx.fillStyle = '#fff';
+            const offset = (16 - apertureSize) / 2;
+            for(let x=0; x<128; x+=16) {
+                for(let y=0; y<128; y+=16) {
+                    ctx.fillRect(x+offset, y+offset, apertureSize, apertureSize);
+                }
+            }
+            arabesqueTex.needsUpdate = true;
+        }
+        updateArabesqueCanvas();
+
+        const arabesqueMat = new THREE.MeshBasicMaterial({
+            map: arabesqueTex, alphaTest: 0.5, transparent: true, side: THREE.DoubleSide
+        });
+        const arabesquePlane = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), arabesqueMat);
+        arabesquePlane.rotation.x = -Math.PI / 2;
+        arabesquePlane.position.set(0, 12, 0); // Acts as a ceiling casting shadows
+        arabesquePlane.castShadow = true;
+
+        // Movement State
+        const keys = { w: false, a: false, s: false, d: false };
+        const velocity = new THREE.Vector3();
+        const acceleration = 0.015;
+        const maxSpeed = 0.3;
+        const damping = 0.90;
+
+        let inCourtyard = false;
+        let sensoryMode = 0; // 0=None, 1=Glass, 2=Mesh, 3=Concrete, 4=LightFilter, 5=Arabesque, 6=Water
+        const clock = new THREE.Clock();
+
+        const skyColorDay = new THREE.Color(0xe0e5ec);
+        const skyColorSunrise = new THREE.Color(0xffdcb3);
+
+        window.addEventListener('resize', onWindowResize);
+        
+        document.addEventListener('wheel', (e) => {
+            if (sensoryMode === 5) {
+                apertureSize -= e.deltaY * 0.02;
+                apertureSize = THREE.MathUtils.clamp(apertureSize, 0, 16);
+                updateArabesqueCanvas();
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            const k = e.key.toLowerCase();
+            if (k === 'w') keys.w = true;
+            if (k === 'a') keys.a = true;
+            if (k === 's') keys.s = true;
+            if (k === 'd') keys.d = true;
+
+            // Sensory Modes (1~7) only in Courtyard
+            if (inCourtyard && k >= '1' && k <= '7') {
+                sensoryMode = parseInt(k);
+                applySensoryMode();
+            } else if (k === '0') {
+                sensoryMode = 0;
+                applySensoryMode();
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            const k = e.key.toLowerCase();
+            if (k === 'w') keys.w = false;
+            if (k === 'a') keys.a = false;
+            if (k === 's') keys.s = false;
+            if (k === 'd') keys.d = false;
+        });
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        const uiCoords = document.getElementById('gps-coords');
+        const uiStateText = document.getElementById('state-text');
+        const uiSensoryHint = document.getElementById('sensory-hint');
+        const uiTime = document.getElementById('time-indicator');
+        const glassOverlay = document.getElementById('glass-overlay');
+        const meshOverlay = document.getElementById('mesh-overlay');
+        const wheelHint = document.getElementById('wheel-hint');
+        const instructionUI = document.getElementById('instruction');
+
+        // AAA Tutorial Sequence
+        setTimeout(() => {
+            instructionUI.classList.remove('init-hidden'); // Slowly fade in (2s)
+            
+            setTimeout(() => {
+                instructionUI.classList.add('hidden-phase'); // Fade out (2s)
+                setTimeout(() => {
+                    instructionUI.classList.remove('tutorial-mode'); // Move to bottom
+                    setTimeout(() => {
+                        instructionUI.classList.remove('hidden-phase'); // Fade back in at bottom
+                    }, 500); 
+                }, 2000); // Wait 2s for fade out to complete
+            }, 4500); // Show centered for 4.5s
+        }, 500); // 0.5s delay before fade-in begins
+        
+        const docentPanel = document.getElementById('docent-panel');
+        const docentImg = document.getElementById('docent-img');
+        const docentTitle = document.getElementById('docent-title');
+        const docentArch = document.getElementById('docent-arch');
+        const docentDesc = document.getElementById('docent-desc');
+        const docentToggle = document.getElementById('docent-toggle');
+
+        docentToggle.addEventListener('click', () => {
+            docentPanel.classList.toggle('collapsed');
+            docentToggle.innerText = docentPanel.classList.contains('collapsed') ? '+' : '-';
+        });
+
+        let docentTimeout;
+
+        const docentData = {
+            1: { title: "Glass & Reflection", arch: "Fondation Cartier, Paris", img: "https://commons.wikimedia.org/wiki/Special:FilePath/Fondation_Cartier_pour_l'Art_Contemporain.jpg?width=600", desc: "장 누벨은 파리 까르띠에 현대미술재단(Fondation Cartier)을 통해 유리가 가진 '비물질성'과 '투명성'을 극대화했습니다. 단순한 유리창이 아니라, 건축물을 에워싸는 거대한 유리 스크린들을 여러 겹으로 겹쳐 배치하여 내부와 외부의 경계를 의도적으로 모호하게 만듭니다. 낮에는 주변의 나무와 구름, 파리의 하늘이 유리 파사드에 반사되어 건물의 실체가 사라진 것처럼 보이며, 밤에는 내부의 인공조명이 유리를 투과해 나오며 공간의 층위가 노출됩니다. 이는 건축물이 환경을 지배하는 대신 풍경 속에 자연스럽게 스며들고 용해되도록 의도한 결과이며, 유리의 굴절과 반사를 빛의 환영(Illusion)으로 치환한 장 누벨 특유의 '비물질화' 철학이 가장 잘 나타난 작품입니다." },
+            2: { title: "Metal Mesh Interface", arch: "Philharmonie de Paris", img: "https://commons.wikimedia.org/wiki/Special:FilePath/Philharmonie_de_Paris_2.jpg?width=600", desc: "장 누벨 건축에서 금속(Metal)은 차갑고 단절된 느낌의 일반적인 속성을 벗어나, 빛을 미세하게 통제하고 직조하는 섬세한 스크린으로 기능합니다. 필하모니 드 파리(Philharmonie de Paris) 등에서 그는 알루미늄 타일이나 금속 메쉬를 활용해 빛의 질감을 조율합니다. 금속 표면은 태양의 각도와 주변 환경의 빛을 머금고 난반사하며, 시시각각 건물의 색채와 형태를 변화시킵니다. 특히 타공된 금속판이나 겹쳐진 메쉬 층은 강렬한 직사광선을 부드럽게 걸러내어 실내에 은은한 빛의 패턴을 만들어내며, 무거운 철골 구조물조차 빛과 상호작용할 때 깃털처럼 가볍고 유동적인 외피(Skin)로 변모할 수 있음을 증명하는 핵심 소재로 사용됩니다." },
+            3: { title: "Heavy Concrete & Shadows", arch: "Nantes Palais de Justice", img: "https://commons.wikimedia.org/wiki/Special:FilePath/Palais_de_justice_de_Nantes_02.jpg?width=600", desc: "낭트 법원(Nantes Palais de Justice)은 장 누벨이 콘크리트라는 육중하고 어두운 소재를 이용해 빛의 효과를 어떻게 역설적으로 강조하는지 보여주는 대표작입니다. 이 건물은 흑색 콘크리트를 전면에 내세워 극도로 엄숙하고 무거운 분위기를 자아내는데, 빛을 모두 흡수할 것 같은 이 짙은 어둠은 내부로 스며드는 적은 양의 빛조차 극도로 강렬하고 신성하게 느끼게 하는 시각적 장치로 작용합니다. 어두운 복도나 법정의 틈새로 예리하게 떨어지는 한 줄기 빛은 권위와 진실을 상징하며, 넓은 그림자 속에서 제한적으로 허락된 빛은 공간의 깊이감을 극대화합니다. 누벨에게 콘크리트는 형태를 만드는 뼈대가 아니라, 빛의 존재감을 명확하게 드러내기 위한 '빛을 담아내는 어둠'입니다." },
+            4: { title: "Time-Color Filter", arch: "Torre Glòries, Barcelona", img: "https://commons.wikimedia.org/wiki/Special:FilePath/Torre_agbar.JPG?width=600", desc: "스페인 바르셀로나에 위치한 토레 글로리에스(Torre Glòries, 구 아그바르 타워)는 빛의 색채와 시간성에 집중한 하이테크 건축의 정수입니다. 이 타워는 붉은색과 푸른색 계열의 알루미늄 패널 위에 수천 개의 유리 루버(Louver)가 덧씌워진 이중 외피 구조를 가지고 있습니다. 지중해의 강렬한 태양광이 이 겹겹의 필터를 통과하면서 건물 표면은 물결치는 듯한 다채로운 색채를 발산하며, 시간과 날씨에 따라 건물의 인상이 완전히 바뀝니다. 밤이 되면 4천 개 이상의 LED 조명이 파사드를 밝히며 거대한 빛의 캔버스로 변모합니다. 장 누벨은 이 건축물을 통해 빛이 단순히 사물의 형태를 보여주는 수동적인 역할을 넘어, 그 자체로 공간에 역동성을 부여하는 주체가 됨을 시사합니다." },
+            5: { title: "Interactive Arabesque", arch: "Institut du Monde Arabe, Paris", img: "https://commons.wikimedia.org/wiki/Special:FilePath/Institut_du_monde_arabe_-_South_facade.jpg?width=600", desc: "1987년에 완공된 파리의 아랍 세계 연구소(Institut du Monde Arabe)는 장 누벨을 세계적인 건축가로 만든 상징적인 작품입니다. 건물의 남쪽 파사드에는 아랍의 전통 기하학적 문양인 무샤라비(Mashrabiya)를 현대적으로 재해석한 240개의 금속 조리개(Diaphragm)가 설치되어 있습니다. 이 조리개들은 카메라 렌즈처럼 빛의 감지 센서에 의해 태양의 광도에 따라 자동으로 열리고 닫히며 실내로 유입되는 빛의 양을 조절합니다. 기계장치가 움직이면서 바닥과 벽에 끊임없이 변화하는 복잡하고 아름다운 그림자 패턴을 만들어내며, 이는 빛이 고정된 환경이 아니라 건축물과 상호작용하며 실시간으로 연출되는 '동적인 예술'임을 보여주는 기계 미학의 정수입니다." },
+            6: { title: "Water & Aquatic Tone", arch: "Louvre Abu Dhabi", img: "https://commons.wikimedia.org/wiki/Special:FilePath/Louvre_Abu_Dhabi_01.jpg?width=600", desc: "루브르 아부다비(Louvre Abu Dhabi)는 장 누벨이 사막의 오아시스에서 영감을 받아 물과 빛의 상호작용을 극한으로 끌어올린 작품입니다. 7,850개의 독특한 금속 별자리 패턴이 겹쳐진 거대한 돔 천장은 아부다비의 작열하는 태양광을 필터링하여 '빛의 비(Rain of Light)'라는 황홀한 시각적 효과를 실내에 쏟아냅니다. 이 빛줄기들은 건물 하부에 흐르는 바닷물 수면에 닿아 산란하고 일렁이며, 반사된 빛이 다시 하얀 건물 외벽과 천장에 투영됩니다. 단단한 건축 구조물은 마치 물 위에 떠 있는 듯한 착각을 불러일으키며, 물과 빛이 융합되어 만들어내는 환상적인 일렁임은 건축물의 물리적인 무게감을 지우고 끝없이 유동하는 신비로운 경계를 창조해냅니다." },
+            7: { title: "Anatomy of Light", arch: "Conceptual / Educational Mode", img: null, desc: "장 누벨에게 건축은 '영화적인 순간의 돌연한 응고(Petrification)'이며, 그가 다루는 가장 중요한 건축 재료는 다름 아닌 '빛' 그 자체입니다. 특정 건물을 모티브로 하지 않은 이 가상의 해부도 모드는 누벨의 핵심 철학을 관통합니다. 콘크리트, 금속, 유리라는 모든 물질적 요소를 투명하게 제거하고 나면, 결국 공간을 정의하고 형태에 부피감을 부여하는 것은 오직 광원의 궤적과 그로 인해 파생되는 짙은 그림자뿐임을 알 수 있습니다. 그는 형태를 먼저 만들고 빛을 비추는 것이 아니라, 빛이 들어오는 방식을 설계함으로써 공간을 조각합니다. 이 모드는 빛과 그림자라는 비물질적 요소가 어떻게 근원적인 건축 언어가 되는지 보여주는 실험입니다." }
+        };
+
+        function getMatName(mode) {
+            switch(mode) {
+                case 1: return "1. GLASS (REFLECTION)";
+                case 2: return "2. METAL MESH (INTERFACE)";
+                case 3: return "3. CONCRETE (SILENCE)";
+                case 4: return "4. LIGHT FILTER (TIME-COLOR)";
+                case 5: return "5. ARABESQUE (INTERACTIVE)";
+                case 6: return "6. WATER (BLUR BOUNDARY)";
+                case 7: return "7. ANATOMY OF LIGHT";
+                default: return "NONE";
+            }
+        }
+
+        function applySensoryMode(skipPanelUpdate = false) {
+            // 1. Reset all visual states
+            glassOverlay.classList.remove('active');
+            meshOverlay.classList.remove('active');
+            wheelHint.classList.remove('active');
+            renderer.domElement.className = '';
+            scene.remove(arabesquePlane);
+            
+            wallMaterial.wireframe = false;
+            wallMaterial.transparent = false;
+            wallMaterial.opacity = 1.0;
+            floorMat.wireframe = false;
+            floorMat.transparent = false;
+            floorMat.opacity = 1.0;
+            
+            // 2. Apply visual state based on effective mode
+            switch(sensoryMode) {
+                case 1: glassOverlay.classList.add('active'); break;
+                case 2: meshOverlay.classList.add('active'); break;
+                case 3: renderer.domElement.classList.add('filter-concrete'); break;
+                case 4: /* Handled in animate */ break; 
+                case 5: scene.add(arabesquePlane); wheelHint.classList.add('active'); break;
+                case 6: renderer.domElement.classList.add('filter-water'); break;
+                case 7: 
+                    wallMaterial.wireframe = true; wallMaterial.transparent = true; wallMaterial.opacity = 0.2;
+                    floorMat.wireframe = true; floorMat.transparent = true; floorMat.opacity = 0.1;
+                    break;
+            }
+
+            // 3. Apply Environment Settings
+            if (sensoryMode > 0) {
+                scene.fog.color.setHex(0xffffff);
+                renderer.setClearColor(0xffffff);
+                scene.fog.density = 0.08;
+            } else {
+                scene.fog.density = 0.15;
+            }
+
+            // 4. Update UI Text & Docent Panel
+            if (sensoryMode > 0) {
+                const matName = getMatName(sensoryMode);
+                uiCoords.classList.add('glitch');
+                uiCoords.innerText = `SENSORY_OVERRIDE | MAT: ${sensoryMode}`;
+                uiStateText.innerText = `State: Sensory Material [${matName}]`;
+                
+                if (!skipPanelUpdate) {
+                    const info = docentData[sensoryMode];
+                    if(info) {
+                        docentPanel.classList.remove('collapsed');
+                        if(docentToggle) docentToggle.innerText = '-';
+                        docentTitle.innerText = info.title;
+                        docentArch.innerText = "Motif: " + info.arch;
+                        docentDesc.innerText = info.desc;
+                        
+                        if(info.img) {
+                            docentImg.src = info.img;
+                            docentImg.style.display = "block";
+                        } else {
+                            docentImg.style.display = "none";
+                        }
+                        
+                        // Hide panel immediately, then fade in after 1.5s delay
+                        clearTimeout(docentTimeout);
+                        docentPanel.classList.remove('active');
+                        docentTimeout = setTimeout(() => {
+                            docentPanel.classList.add('active');
+                        }, 1500); 
+                    }
+                }
+            } else {
+                uiCoords.classList.remove('glitch');
+                uiCoords.innerText = "LAT 48.8566 | LON 2.3522";
+                uiStateText.innerText = "State: Cognitive Reset";
+                
+                if (!skipPanelUpdate) {
+                    clearTimeout(docentTimeout);
+                    docentPanel.classList.remove('active');
+                }
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const dir = new THREE.Vector3();
+            camera.getWorldDirection(dir);
+            dir.y = 0; dir.normalize();
+            
+            const right = new THREE.Vector3();
+            right.crossVectors(camera.up, dir).normalize();
+            
+            if (keys.w) velocity.add(dir.clone().multiplyScalar(acceleration));
+            if (keys.s) velocity.add(dir.clone().multiplyScalar(-acceleration));
+            if (keys.a) velocity.add(right.clone().multiplyScalar(-acceleration));
+            if (keys.d) velocity.add(right.clone().multiplyScalar(acceleration));
+            
+            velocity.multiplyScalar(damping);
+            if (velocity.length() > maxSpeed) velocity.normalize().multiplyScalar(maxSpeed);
+            
+            camera.position.add(velocity);
+            controls.target.add(velocity);
+            controls.update();
+            
+            const elapsedTime = clock.getElapsedTime();
+            uiTime.innerText = "T+" + elapsedTime.toFixed(2);
+            
+            // --- TIME-BASED CHANGES (Dynamic Sky & Shadows) ---
+            const sunAngle = elapsedTime * 0.3;
+            directionalLight.position.x = Math.sin(sunAngle) * 30;
+            directionalLight.position.z = Math.cos(sunAngle) * 15;
+            directionalLight.position.y = 15 + Math.sin(sunAngle * 0.5) * 10;
+            
+            const blendFactor = (Math.sin(sunAngle * 0.5) + 1.0) / 2.0; 
+            const currentSkyColor = new THREE.Color().copy(skyColorDay).lerp(skyColorSunrise, 1.0 - blendFactor);
+            
+            if (!inCourtyard) {
+                renderer.setClearColor(currentSkyColor);
+                scene.fog.color.copy(currentSkyColor);
+            }
+
+            if (sensoryMode === 4) {
+                // 4. Light Filter: Rapidly cycle vivid colors
+                directionalLight.color.setHSL((elapsedTime * 0.2) % 1.0, 1.0, 0.6);
+                directionalLight.intensity = 1.5;
+            } else {
+                // Normal Light
+                const lightColorDay = new THREE.Color(0xffffff);
+                const lightColorSunrise = new THREE.Color(0xffaa55);
+                directionalLight.color.copy(lightColorDay).lerp(lightColorSunrise, 1.0 - blendFactor);
+                directionalLight.intensity = 1.0 + blendFactor * 0.5;
+            }
+
+            // --- MOVEMENT SPEED-BASED MATERIAL LOGIC ---
+            const speed = velocity.length();
+            const normalizedSpeed = Math.min(speed / maxSpeed, 1.0);
+            const targetMetalness = THREE.MathUtils.clamp(normalizedSpeed * 0.9, 0.1, 0.9);
+            const targetRoughness = THREE.MathUtils.clamp(1.0 - normalizedSpeed, 0.1, 0.9);
+            
+            wallMaterial.metalness = THREE.MathUtils.lerp(wallMaterial.metalness, targetMetalness, 0.1);
+            wallMaterial.roughness = THREE.MathUtils.lerp(wallMaterial.roughness, targetRoughness, 0.1);
+            if (normalizedSpeed > 0.5) {
+                wallMaterial.color.lerp(new THREE.Color(0xb56565), 0.1);
+            } else {
+                wallMaterial.color.lerp(new THREE.Color(0x888888), 0.05);
+            }
+
+            // --- SEQUENCE / COURTYARD DETECTION ---
+            const distToCenter = camera.position.length();
+            const wasInCourtyard = inCourtyard;
+            
+            if (distToCenter < 6.0) {
+                inCourtyard = true;
+            } else {
+                inCourtyard = false;
+            }
+            
+            if (distToCenter >= 6.0) {
+                uiSensoryHint.classList.remove('active');
+                if (camera.position.z > 25) uiStateText.innerText = "Sequence 1: Entrance Corridor";
+                else if (camera.position.z > 10) uiStateText.innerText = "Sequence 2: Light Filter Zone";
+                else uiStateText.innerText = "Sequence 3: Approaching Center";
+            }
+            
+            if (inCourtyard && !wasInCourtyard) {
+                // Entered Courtyard
+                uiSensoryHint.classList.add('active');
+                sensoryMode = 0; // Default courtyard reset
+                applySensoryMode();
+            } else if (!inCourtyard && wasInCourtyard) {
+                // Exited Courtyard
+                sensoryMode = 0;
+                applySensoryMode();
+                uiSensoryHint.classList.remove('active');
+                scene.fog.density = 0.04; 
+            }
+            
+            renderer.render(scene, camera);
+        }
+
+        animate();
+    </script>
+</body>
+</html>
